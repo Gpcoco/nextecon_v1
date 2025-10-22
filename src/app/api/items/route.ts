@@ -1,294 +1,263 @@
+// app/api/items/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { createServerClient } from '@/utils/supabase';
-import { Item, ApiResponse, CreateItemInput } from '@/types/items';
+import { cookies } from 'next/headers';
 
-// Cache configuration
-const CACHE_DURATION = 60 * 1000; // 60 secondi di cache
-const STALE_WHILE_REVALIDATE = 30 * 1000; // 30 secondi di stale-while-revalidate
-
-// In-memory cache (per Edge Runtime)
-let memoryCache: {
-  data: Item[] | null;
-  timestamp: number;
-  etag: string | null;
-} = {
-  data: null,
-  timestamp: 0,
-  etag: null,
-};
-
+// GET /api/items - Fetch all items
 export async function GET(request: NextRequest) {
   try {
-    // Controlla header If-None-Match per ETag
-    const clientEtag = request.headers.get('If-None-Match');
-    
-    // Controlla cache in memoria
-    const now = Date.now();
-    const cacheAge = now - memoryCache.timestamp;
-    const isStale = cacheAge > CACHE_DURATION;
-    const isVeryStale = cacheAge > (CACHE_DURATION + STALE_WHILE_REVALIDATE);
-    
-    // Se il client ha già i dati aggiornati (stesso ETag), ritorna 304
-    if (clientEtag && clientEtag === memoryCache.etag && !isVeryStale) {
-      return new NextResponse(null, {
-        status: 304,
-        headers: {
-          'Cache-Control': `public, max-age=${CACHE_DURATION / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`,
-          'ETag': memoryCache.etag,
-        },
-      });
-    }
-    
-    // Se la cache è valida, la ritorna immediatamente
-    if (memoryCache.data && !isStale) {
-      return NextResponse.json<ApiResponse<Item[]>>(
-        { data: memoryCache.data },
-        {
-          headers: {
-            'Cache-Control': `public, max-age=${CACHE_DURATION / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`,
-            'ETag': memoryCache.etag || '',
-            'X-Cache': 'HIT',
-            'X-Cache-Age': String(cacheAge),
-          },
-        }
-      );
-    }
-    
-    // Se la cache è stale ma non troppo vecchia, ritorna i dati stale e aggiorna in background
-    if (memoryCache.data && isStale && !isVeryStale) {
-      // Ritorna i dati stale immediatamente
-      const staleResponse = NextResponse.json<ApiResponse<Item[]>>(
-        { data: memoryCache.data },
-        {
-          headers: {
-            'Cache-Control': `public, max-age=${CACHE_DURATION / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`,
-            'ETag': memoryCache.etag || '',
-            'X-Cache': 'STALE',
-            'X-Cache-Age': String(cacheAge),
-          },
-        }
-      );
-      
-      // Aggiorna in background (non bloccare la risposta)
-      updateCache().catch(console.error);
-      
-      return staleResponse;
-    }
-    
-    // Altrimenti, recupera i dati freschi da Supabase
-    const cookieStore = await cookies();
+    const cookieStore = cookies();
     const supabase = createServerClient(cookieStore);
+
+    // Verify user is authenticated
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    // Ottimizzazione query: seleziona solo i campi necessari e limita i risultati
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Query items from database
     const { data: items, error } = await supabase
       .from('items')
-      .select('item_id, item_name, item_description, item_category, item_rarity, item_base_value, is_city_key, created_at')
-      .order('created_at', { ascending: false })
-      .limit(100); // Limita a 100 items per ridurre il payload
-    
+      .select('*')
+      .order('created_at', { ascending: false }); // Order by created_at descending
+
     if (error) {
       console.error('Supabase error:', error);
-      
-      // Se c'è un errore ma abbiamo dati in cache vecchi, ritornali
-      if (memoryCache.data) {
-        return NextResponse.json<ApiResponse<Item[]>>(
-          { data: memoryCache.data },
-          {
-            headers: {
-              'Cache-Control': 'no-cache',
-              'X-Cache': 'ERROR-FALLBACK',
-            },
-          }
-        );
-      }
-      
-      return NextResponse.json<ApiResponse<Item[]>>(
-        { error: 'Failed to fetch items' },
+      return NextResponse.json(
+        { error: error.message },
         { status: 500 }
       );
     }
+
+    // Generate ETag for caching
+    const etag = items ? `"${Buffer.from(JSON.stringify(items)).toString('base64').slice(0, 20)}"` : null;
     
-    // Genera ETag basato sul contenuto
-    const newEtag = generateEtag(items || []);
+    // Check if client has cached version
+    const clientEtag = request.headers.get('If-None-Match');
+    if (clientEtag && clientEtag === etag) {
+      return new NextResponse(null, { status: 304 });
+    }
+
+    // Return response with ETag
+    const response = NextResponse.json({ data: items || [] });
+    if (etag) {
+      response.headers.set('ETag', etag);
+    }
+    response.headers.set('Cache-Control', 'private, max-age=0, must-revalidate');
     
-    // Aggiorna cache in memoria
-    memoryCache = {
-      data: items || [],
-      timestamp: now,
-      etag: newEtag,
-    };
-    
-    return NextResponse.json<ApiResponse<Item[]>>(
-      { data: items || [] },
-      {
-        headers: {
-          'Cache-Control': `public, max-age=${CACHE_DURATION / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`,
-          'ETag': newEtag,
-          'X-Cache': 'MISS',
-          'X-Total-Count': String(items?.length || 0),
-        },
-      }
-    );
+    return response;
   } catch (error) {
     console.error('API error:', error);
-    
-    // Fallback to cached data if available
-    if (memoryCache.data) {
-      return NextResponse.json<ApiResponse<Item[]>>(
-        { data: memoryCache.data },
-        {
-          headers: {
-            'Cache-Control': 'no-cache',
-            'X-Cache': 'ERROR-FALLBACK',
-          },
-        }
-      );
-    }
-    
-    return NextResponse.json<ApiResponse<Item[]>>(
+    return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-// Funzione helper per aggiornare la cache in background
-async function updateCache() {
-  try {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(cookieStore);
-    const { data: items } = await supabase
-      .from('items')
-      .select('item_id, item_name, item_description, item_category, item_rarity, item_base_value, is_city_key, created_at')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    
-    if (items) {
-      memoryCache = {
-        data: items,
-        timestamp: Date.now(),
-        etag: generateEtag(items),
-      };
-    }
-  } catch (error) {
-    console.error('Background cache update failed:', error);
-  }
-}
-
-// Funzione helper per generare ETag
-function generateEtag(items: Item[]): string {
-  if (!items.length) return '"empty"';
-  
-  // Genera un hash semplice basato su numero items e primi/ultimi ID
-  const firstId = items[0]?.item_id || '';
-  const lastId = items[items.length - 1]?.item_id || '';
-  const count = items.length;
-  
-  return `"${count}-${firstId.slice(0, 8)}-${lastId.slice(0, 8)}"`;
-}
-
-// Configurazione per Edge Runtime (più veloce e scalabile)
-export const runtime = 'edge';
-export const dynamic = 'force-dynamic';
-export const revalidate = 60; // Revalida ogni 60 secondi
-
-// POST: Crea un nuovo item
+// POST /api/items - Create a new item
 export async function POST(request: NextRequest) {
   try {
-    // Parse del body della richiesta
-    const body = await request.json() as CreateItemInput;
-    
-    // Validazione input
-    if (!body.item_name || typeof body.item_name !== 'string') {
-      return NextResponse.json<ApiResponse<Item>>(
-        { error: 'Item name is required and must be a string' },
-        { status: 400 }
-      );
-    }
-    
-    // Sanitizzazione input
-    const itemName = body.item_name.trim().slice(0, 255);
-    const itemDescription = body.item_description?.trim().slice(0, 1000) || null;
-    
-    if (itemName.length === 0) {
-      return NextResponse.json<ApiResponse<Item>>(
-        { error: 'Item name cannot be empty' },
-        { status: 400 }
-      );
-    }
-    
-    // Crea client Supabase con autenticazione
-    const cookieStore = await cookies();
+    const cookieStore = cookies();
     const supabase = createServerClient(cookieStore);
-    
-    // Verifica che l'utente sia autenticato
+
+    // Verify user is authenticated
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
-      return NextResponse.json<ApiResponse<Item>>(
+      return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
-    
-    // Inserisci il nuovo item nel database
+
+    // Parse request body
+    const body = await request.json();
+    const { item_name, item_description, item_category, item_rarity, item_base_value } = body;
+
+    // Validate required fields
+    if (!item_name) {
+      return NextResponse.json(
+        { error: 'item_name is required' },
+        { status: 400 }
+      );
+    }
+
+    // Prepare item data - let database generate the UUID
+    const itemData = {
+      item_name: item_name.trim(),
+      item_description: item_description?.trim() || null,
+      item_category: item_category || 'common',
+      item_rarity: item_rarity || 'common',
+      item_base_value: item_base_value || 1,
+      is_city_key: false,
+      // Note: item_id will be auto-generated by the database
+      // Note: created_at will be auto-generated by the database
+    };
+
+    // Insert item into database
     const { data: newItem, error: insertError } = await supabase
       .from('items')
-      .insert({
-        item_name: itemName,
-        item_description: itemDescription,
-        item_category: null,
-        item_rarity: 'common',
-        item_base_value: 1,
-        is_city_key: false,
-      })
+      .insert(itemData)
       .select()
       .single();
-    
+
     if (insertError) {
       console.error('Insert error:', insertError);
-      
-      if (insertError.code === '23505') {
-        return NextResponse.json<ApiResponse<Item>>(
-          { error: 'An item with this name already exists' },
-          { status: 409 }
-        );
-      }
-      
-      return NextResponse.json<ApiResponse<Item>>(
-        { error: 'Failed to create item' },
+      return NextResponse.json(
+        { error: insertError.message },
         { status: 500 }
       );
     }
-    
-    // Invalida la cache dopo l'inserimento
-    memoryCache.timestamp = 0; // Forza refresh al prossimo GET
-    
-    return NextResponse.json<ApiResponse<Item>>(
+
+    return NextResponse.json(
       { 
         data: newItem,
         message: 'Item created successfully'
       },
-      { 
-        status: 201,
-        headers: {
-          'Cache-Control': 'no-cache',
-        }
-      }
+      { status: 201 }
     );
-    
   } catch (error) {
-    console.error('POST error:', error);
+    console.error('API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/items/[id] - Delete an item
+export async function DELETE(request: NextRequest) {
+  try {
+    const cookieStore = cookies();
+    const supabase = createServerClient(cookieStore);
+
+    // Verify user is authenticated
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    if (error instanceof SyntaxError) {
-      return NextResponse.json<ApiResponse<Item>>(
-        { error: 'Invalid JSON in request body' },
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Extract item ID from URL
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split('/');
+    const itemId = pathParts[pathParts.length - 1];
+
+    if (!itemId) {
+      return NextResponse.json(
+        { error: 'Item ID is required' },
         { status: 400 }
       );
     }
+
+    // Delete the item
+    const { error: deleteError } = await supabase
+      .from('items')
+      .delete()
+      .eq('item_id', itemId);
+
+    if (deleteError) {
+      console.error('Delete error:', deleteError);
+      return NextResponse.json(
+        { error: deleteError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      { message: 'Item deleted successfully' },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH /api/items/[id] - Update an item
+export async function PATCH(request: NextRequest) {
+  try {
+    const cookieStore = cookies();
+    const supabase = createServerClient(cookieStore);
+
+    // Verify user is authenticated
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    return NextResponse.json<ApiResponse<Item>>(
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Extract item ID from URL
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split('/');
+    const itemId = pathParts[pathParts.length - 1];
+
+    if (!itemId) {
+      return NextResponse.json(
+        { error: 'Item ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Parse request body
+    const body = await request.json();
+    const updates: any = {};
+
+    // Only include fields that were provided
+    if (body.item_name !== undefined) updates.item_name = body.item_name.trim();
+    if (body.item_description !== undefined) updates.item_description = body.item_description?.trim() || null;
+    if (body.item_category !== undefined) updates.item_category = body.item_category;
+    if (body.item_rarity !== undefined) updates.item_rarity = body.item_rarity;
+    if (body.item_base_value !== undefined) updates.item_base_value = body.item_base_value;
+    if (body.is_city_key !== undefined) updates.is_city_key = body.is_city_key;
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json(
+        { error: 'No fields to update' },
+        { status: 400 }
+      );
+    }
+
+    // Update the item
+    const { data: updatedItem, error: updateError } = await supabase
+      .from('items')
+      .update(updates)
+      .eq('item_id', itemId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Update error:', updateError);
+      return NextResponse.json(
+        { error: updateError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      { 
+        data: updatedItem,
+        message: 'Item updated successfully'
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('API error:', error);
+    return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
     );

@@ -34,7 +34,7 @@ export function useItems(options: UseItemsOptions = {}): UseItemsReturn {
   const etagRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   
-  // Funzione per recuperare gli items
+  // Funzione per recuperare gli items - useCallback per evitare re-creazioni
   const fetchItems = useCallback(async (skipLoading = false) => {
     // Cancella richieste precedenti
     if (abortControllerRef.current) {
@@ -105,7 +105,7 @@ export function useItems(options: UseItemsOptions = {}): UseItemsReturn {
         setLoading(false);
       }
     }
-  }, []);
+  }, []); // Empty dependency array since we're using refs for state
   
   // Funzione per creare un nuovo item
   const createItem = useCallback(async (input: CreateItemInput): Promise<boolean> => {
@@ -162,7 +162,7 @@ export function useItems(options: UseItemsOptions = {}): UseItemsReturn {
         setIsCreating(false);
       }
     }
-  }, [fetchItems]);
+  }, [fetchItems]); // fetchItems is in the dependency array
   
   // Funzione di refresh manuale
   const refresh = useCallback(async () => {
@@ -180,7 +180,7 @@ export function useItems(options: UseItemsOptions = {}): UseItemsReturn {
         abortControllerRef.current.abort();
       }
     };
-  }, []); // Solo al mount
+  }, [fetchItems]); // Add fetchItems to dependency array
   
   // Effect per auto-refresh opzionale
   useEffect(() => {
