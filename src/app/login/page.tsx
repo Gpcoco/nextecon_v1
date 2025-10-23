@@ -1,3 +1,4 @@
+// src/app/login/page.tsx
 import Link from 'next/link'
 import { headers, cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -25,7 +26,8 @@ export default function Login({
       return redirect('/login?message=Could not authenticate user')
     }
 
-    return redirect('/home')
+    // Redirect with a special query param to trigger cache clearing on client side
+    return redirect('/home?clearCache=true')
   }
 
   const signUp = async (formData: FormData) => {
