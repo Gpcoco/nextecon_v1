@@ -1,4 +1,5 @@
 // src/hooks/useInventories.ts
+// CORRECTED VERSION - Removed redundant user change detection
 import { useState, useEffect, useRef } from 'react'
 
 export interface Item {
@@ -30,7 +31,7 @@ export interface InventoriesData {
 interface UseInventoriesOptions {
   autoRefresh?: boolean
   refreshInterval?: number
-  userId?: string
+  userId?: string // Still accepted for backwards compatibility, but not used for caching
 }
 
 interface UseInventoriesReturn {
@@ -44,12 +45,11 @@ interface UseInventoriesReturn {
 export function useInventories(
   options: UseInventoriesOptions = {},
 ): UseInventoriesReturn {
-  const { autoRefresh = false, refreshInterval = 30000, userId } = options
+  const { autoRefresh = false, refreshInterval = 30000 } = options
 
   const [data, setData] = useState<InventoriesData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [cachedUserId, setCachedUserId] = useState<string | null>(null)
 
   // Use ref to track if we're currently fetching to prevent duplicate requests
   const isFetchingRef = useRef(false)
@@ -71,7 +71,6 @@ export function useInventories(
   const clearCache = () => {
     console.log('🧹 clearCache called')
     setData(null)
-    setCachedUserId(null)
   }
 
   // Manual refresh function
@@ -146,10 +145,8 @@ export function useInventories(
         setData(result.data)
         setLoading(false)
 
-        // Store the player_id to track which user's data this is
-        if (result.data?.player_id) {
-          setCachedUserId(result.data.player_id)
-        }
+        // Note: We don't need to track cachedUserId anymore
+        // The auth state change listener in HomePage handles user changes
       } catch (err) {
         // Ignore abort errors
         if (err instanceof Error && err.name === 'AbortError') {
@@ -179,14 +176,10 @@ export function useInventories(
     }
   }, [refreshTrigger]) // Only re-run when refresh is manually triggered
 
-  // Check if userId changed (different user logged in)
-  useEffect(() => {
-    if (userId && cachedUserId && userId !== cachedUserId) {
-      console.log('🔄 User changed, clearing cache and refetching')
-      clearCache()
-      setRefreshTrigger((prev) => prev + 1)
-    }
-  }, [userId, cachedUserId])
+  // REMOVED: User change detection - it was redundant and buggy
+  // The auth state listener in HomePage already handles user changes via:
+  // - SIGNED_OUT event → clearCache() → router.push('/login')
+  // - New login → component remount → fresh state
 
   // Auto-refresh setup
   useEffect(() => {
