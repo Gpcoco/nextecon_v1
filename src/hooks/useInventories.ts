@@ -1,5 +1,5 @@
 // src/hooks/useInventories.ts
-// CORRECTED VERSION - Removed redundant user change detection
+// FIXED VERSION - Added skip option to prevent premature fetching
 import { useState, useEffect, useRef } from 'react'
 
 export interface Item {
@@ -31,7 +31,8 @@ export interface InventoriesData {
 interface UseInventoriesOptions {
   autoRefresh?: boolean
   refreshInterval?: number
-  userId?: string // Still accepted for backwards compatibility, but not used for caching
+  userId?: string
+  skip?: boolean // 🔧 NEW: Skip fetching until ready
 }
 
 interface UseInventoriesReturn {
@@ -45,10 +46,10 @@ interface UseInventoriesReturn {
 export function useInventories(
   options: UseInventoriesOptions = {},
 ): UseInventoriesReturn {
-  const { autoRefresh = false, refreshInterval = 30000 } = options
+  const { autoRefresh = false, refreshInterval = 30000, skip = false } = options
 
   const [data, setData] = useState<InventoriesData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!skip) // 🔧 Don't show loading if skipped
   const [error, setError] = useState<string | null>(null)
 
   // Use ref to track if we're currently fetching to prevent duplicate requests
@@ -65,6 +66,7 @@ export function useInventories(
     hasData: !!data,
     hasError: !!error,
     refreshTrigger,
+    skip, // 🔧 Log skip state
   })
 
   // Clear cache function
@@ -81,6 +83,13 @@ export function useInventories(
 
   // Main fetch effect - this is the ONLY place we fetch
   useEffect(() => {
+    // 🔧 FIX: Don't fetch if skip is true
+    if (skip) {
+      console.log('⏭️ Skipping fetch (skip=true)')
+      setLoading(false)
+      return
+    }
+
     console.log('🎯 Fetch effect triggered, refreshTrigger:', refreshTrigger)
 
     let abortController = new AbortController()
@@ -145,8 +154,7 @@ export function useInventories(
         setData(result.data)
         setLoading(false)
 
-        // Note: We don't need to track cachedUserId anymore
-        // The auth state change listener in HomePage handles user changes
+        // Note: We removed the cachedUserId tracking as it was causing issues
       } catch (err) {
         // Ignore abort errors
         if (err instanceof Error && err.name === 'AbortError') {
@@ -174,16 +182,11 @@ export function useInventories(
       console.log('🛑 Aborting fetch')
       abortController.abort()
     }
-  }, [refreshTrigger]) // Only re-run when refresh is manually triggered
-
-  // REMOVED: User change detection - it was redundant and buggy
-  // The auth state listener in HomePage already handles user changes via:
-  // - SIGNED_OUT event → clearCache() → router.push('/login')
-  // - New login → component remount → fresh state
+  }, [refreshTrigger, skip]) // 🔧 Added skip to dependencies
 
   // Auto-refresh setup
   useEffect(() => {
-    if (!autoRefresh) {
+    if (!autoRefresh || skip) {
       console.log('⏰ Auto-refresh disabled')
       return
     }
@@ -198,10 +201,12 @@ export function useInventories(
       console.log('🛑 Clearing auto-refresh interval')
       clearInterval(intervalId)
     }
-  }, [autoRefresh, refreshInterval])
+  }, [autoRefresh, refreshInterval, skip])
 
   // Refresh on window focus (user returns to tab)
   useEffect(() => {
+    if (skip) return
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         console.log('👁️ Tab visible again, refreshing...')
@@ -213,7 +218,7 @@ export function useInventories(
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [skip])
 
   console.log('🎣 Returning from hook:', {
     hasData: !!data,
