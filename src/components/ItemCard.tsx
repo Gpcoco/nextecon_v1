@@ -1,117 +1,213 @@
 // src/components/ItemCard.tsx
-import React from 'react'
-import { Item } from '@/hooks/useInventories'
+'use client'
+
+import { motion } from 'framer-motion'
+import { Item } from '@/contexts/GameContext'
 
 interface ItemCardProps {
   item: Item
+  index: number
 }
 
-export function ItemCard({ item }: ItemCardProps) {
+export function ItemCard({ item, index }: ItemCardProps) {
   const getRarityColor = (rarity: string | null) => {
     switch (rarity?.toLowerCase()) {
       case 'legendary':
-        return 'bg-gradient-to-br from-yellow-400 to-orange-500 text-white'
+        return {
+          bg: 'from-orange-500 to-red-600',
+          border: 'border-orange-500',
+          text: 'text-orange-600',
+          glow: 'shadow-orange-200/50',
+        }
       case 'epic':
-        return 'bg-gradient-to-br from-purple-500 to-pink-500 text-white'
+        return {
+          bg: 'from-purple-500 to-indigo-600',
+          border: 'border-purple-500',
+          text: 'text-purple-600',
+          glow: 'shadow-purple-200/50',
+        }
       case 'rare':
-        return 'bg-gradient-to-br from-blue-500 to-blue-600 text-white'
+        return {
+          bg: 'from-blue-500 to-cyan-600',
+          border: 'border-blue-500',
+          text: 'text-blue-600',
+          glow: 'shadow-blue-200/50',
+        }
       case 'uncommon':
-        return 'bg-gradient-to-br from-green-500 to-green-600 text-white'
+        return {
+          bg: 'from-green-500 to-emerald-600',
+          border: 'border-green-500',
+          text: 'text-green-600',
+          glow: 'shadow-green-200/50',
+        }
+      case 'common':
       default:
-        return 'bg-gradient-to-br from-gray-400 to-gray-500 text-white'
+        return {
+          bg: 'from-gray-500 to-slate-600',
+          border: 'border-gray-400',
+          text: 'text-gray-600',
+          glow: 'shadow-gray-200/50',
+        }
     }
   }
 
-  const getRarityBadgeColor = (rarity: string | null) => {
-    switch (rarity?.toLowerCase()) {
-      case 'legendary':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300'
-      case 'epic':
-        return 'bg-purple-100 text-purple-800 border-purple-300'
-      case 'rare':
-        return 'bg-blue-100 text-blue-800 border-blue-300'
-      case 'uncommon':
-        return 'bg-green-100 text-green-800 border-green-300'
+  const getCategoryIcon = (category: string | null) => {
+    switch (category?.toLowerCase()) {
+      case 'weapon':
+        return '⚔️'
+      case 'armor':
+        return '🛡️'
+      case 'potion':
+        return '🧪'
+      case 'food':
+        return '🍖'
+      case 'material':
+        return '📦'
+      case 'key':
+        return '🔑'
+      case 'quest':
+        return '📜'
+      case 'consumable':
+        return '💊'
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-300'
+        return '📦'
     }
   }
 
-  const getDurabilityColor = (durability: number | null) => {
-    if (!durability) return 'bg-gray-300'
-    if (durability >= 70) return 'bg-green-500'
-    if (durability >= 40) return 'bg-yellow-500'
-    return 'bg-red-500'
-  }
+  const colors = getRarityColor(item.item_rarity)
 
   return (
-    <div className="group cursor-pointer overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md">
-      {/* Item Header with Rarity Color */}
-      <div className={`px-4 py-3 ${getRarityColor(item.item_rarity)}`}>
-        <div className="flex items-start justify-between">
-          <h3 className="line-clamp-1 text-sm font-semibold">
-            {item.item_name}
-          </h3>
-          {item.is_city_key && (
-            <span className="ml-2 text-lg" title="City Key">
-              🔑
-            </span>
-          )}
-        </div>
-      </div>
+    <motion.div
+      initial={{ opacity: 0, rotateY: 90, scale: 0.8 }}
+      animate={{
+        opacity: 1,
+        rotateY: 0,
+        scale: 1,
+      }}
+      transition={{
+        rotateY: { duration: 0.4, delay: index * 0.05 },
+        scale: { duration: 0.3, delay: index * 0.05 },
+        opacity: { duration: 0.3, delay: index * 0.05 },
+      }}
+      style={{ perspective: 1000 }}
+      whileHover={{
+        scale: 1.05,
+        rotateY: 5,
+        rotateX: 5,
+        transition: { type: 'spring', stiffness: 400, damping: 15 },
+      }}
+      className={`
+        relative overflow-hidden rounded-xl border-2 ${colors.border}
+        bg-white hover:shadow-xl ${colors.glow}
+        cursor-pointer transition-all duration-300
+      `}
+    >
+      {/* Rarity glow effect */}
+      <motion.div
+        className={`absolute inset-0 bg-gradient-to-r ${colors.bg} opacity-10`}
+        animate={{ opacity: [0.05, 0.15, 0.05] }}
+        transition={{ duration: 2, repeat: Infinity }}
+      />
 
-      {/* Item Body */}
-      <div className="p-4">
-        {/* Description */}
+      {/* Special key indicator */}
+      {item.is_city_key && (
+        <motion.div
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', delay: 0.3 }}
+          className="absolute right-2 top-2 z-10"
+        >
+          <div className="flex items-center gap-1 rounded-full bg-yellow-500 px-2 py-1 text-xs font-bold text-white">
+            <span>🏙️</span>
+            <span>City Key</span>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Card content */}
+      <div className="relative p-4">
+        {/* Item Icon */}
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{
+            type: 'spring',
+            stiffness: 300,
+            damping: 15,
+            delay: index * 0.05 + 0.2,
+          }}
+          className={`
+            mx-auto mb-3 h-16 w-16 rounded-full 
+            bg-gradient-to-br ${colors.bg}
+            flex items-center justify-center text-3xl
+            shadow-lg
+          `}
+        >
+          {getCategoryIcon(item.item_category)}
+        </motion.div>
+
+        {/* Item Name */}
+        <motion.h3
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.05 + 0.3 }}
+          className={`text-center font-bold ${colors.text} mb-2 line-clamp-2 text-sm`}
+        >
+          {item.item_name}
+        </motion.h3>
+
+        {/* Item Description */}
         {item.item_description && (
-          <p className="mb-3 line-clamp-2 text-xs text-gray-600">
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: index * 0.05 + 0.4 }}
+            className="mb-3 line-clamp-2 text-center text-xs text-gray-600"
+          >
             {item.item_description}
-          </p>
+          </motion.p>
         )}
 
         {/* Item Stats */}
-        <div className="space-y-2">
-          {/* Category & Rarity */}
-          <div className="flex flex-wrap items-center gap-2">
-            {item.item_category && (
-              <span className="inline-flex items-center rounded border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800">
-                {item.item_category}
-              </span>
-            )}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.05 + 0.5 }}
+          className="space-y-2 border-t border-gray-100 pt-3"
+        >
+          {/* Quantity and Rarity */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+              x{item.quantity}
+            </span>
             {item.item_rarity && (
               <span
-                className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${getRarityBadgeColor(
-                  item.item_rarity,
-                )}`}
+                className={`rounded-full bg-gradient-to-r px-2 py-1 ${colors.bg} text-xs font-medium capitalize text-white`}
               >
                 {item.item_rarity}
               </span>
             )}
           </div>
 
-          {/* Quantity */}
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-600">Quantity:</span>
-            <span className="font-semibold text-gray-900">
-              ×{item.quantity}
-            </span>
-          </div>
-
-          {/* Durability */}
-          {item.durability !== null && (
+          {/* Durability Bar */}
+          {item.durability !== null && item.durability >= 0 && (
             <div className="space-y-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Durability:</span>
-                <span className="font-semibold text-gray-900">
-                  {item.durability}%
-                </span>
+              <div className="flex justify-between text-xs text-gray-600">
+                <span>Durability</span>
+                <span>{item.durability}%</span>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-gray-200">
-                <div
-                  className={`h-1.5 rounded-full transition-all duration-300 ${getDurabilityColor(
-                    item.durability,
-                  )}`}
-                  style={{ width: `${item.durability}%` }}
+              <div className="relative h-1.5 overflow-hidden rounded-full bg-gray-200">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${item.durability}%` }}
+                  transition={{ duration: 0.8, delay: index * 0.05 + 0.6 }}
+                  className={`absolute h-full rounded-full ${
+                    item.durability > 70
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-600'
+                      : item.durability > 40
+                        ? 'bg-gradient-to-r from-yellow-500 to-orange-600'
+                        : 'bg-gradient-to-r from-red-500 to-rose-600'
+                  }`}
                 />
               </div>
             </div>
@@ -119,18 +215,51 @@ export function ItemCard({ item }: ItemCardProps) {
 
           {/* Value */}
           {item.item_base_value !== null && (
-            <div className="flex items-center justify-between border-t border-gray-200 pt-2 text-sm">
-              <span className="text-gray-600">Value:</span>
-              <span className="font-semibold text-yellow-600">
-                {item.item_base_value} 💰
-              </span>
+            <div className="flex items-center justify-center gap-1 text-xs text-gray-600">
+              <span>💰</span>
+              <span className="font-medium">{item.item_base_value}</span>
             </div>
           )}
-        </div>
+        </motion.div>
       </div>
 
-      {/* Hover Effect Overlay */}
-      <div className="pointer-events-none absolute inset-0 bg-blue-500 opacity-0 transition-opacity duration-200 group-hover:opacity-5" />
-    </div>
+      {/* Hover glow effect */}
+      <motion.div
+        className="pointer-events-none absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
+        style={{
+          background: `radial-gradient(circle at center, ${
+            colors.bg.includes('orange')
+              ? 'rgba(249, 115, 22, 0.1)'
+              : 'rgba(59, 130, 246, 0.1)'
+          } 0%, transparent 70%)`,
+        }}
+      />
+    </motion.div>
+  )
+}
+
+// Empty state component
+export function EmptyItemsState() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="col-span-full flex flex-col items-center justify-center px-4 py-16"
+    >
+      <motion.div
+        animate={{
+          rotate: [0, 5, -5, 0],
+          scale: [1, 1.1, 1],
+        }}
+        transition={{ duration: 2, repeat: Infinity }}
+        className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-gray-200 to-gray-300 text-5xl"
+      >
+        📭
+      </motion.div>
+      <h3 className="mb-2 text-xl font-bold text-gray-900">No Items Found</h3>
+      <p className="max-w-md text-center text-gray-600">
+        This inventory is empty. Start your adventure to collect items!
+      </p>
+    </motion.div>
   )
 }
