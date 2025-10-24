@@ -3,37 +3,28 @@
 
 import { useInventories } from '@/hooks/useInventories'
 import { InventoriesList } from '@/components/InventoriesList'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState, useRef, Suspense } from 'react'
+import { AdventureSelector } from '@/components/AdventureSelector'
+import { PlayerSelector } from '@/components/PlayerSelector'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState, Suspense } from 'react'
 import { createBrowserClient } from '@/utils/supabase'
 import { handleLogout } from '@/utils/authHelpers'
-import { CacheManager } from '@/utils/cacheManager'
+import { useGame } from '@/contexts/GameContext'
 
-// 🔧 FIX: Wrap the component that uses useSearchParams in Suspense
 function HomeContent() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [user, setUser] = useState<any>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
-  // Track if we've already cleared cache on this mount
-  const hasClearedCacheRef = useRef(false)
+  // Get selected player from context
+  const { selectedPlayer, selectedAdventure } = useGame()
 
-  // Clear cache FIRST, before initializing the hook
-  useEffect(() => {
-    const shouldClearCache = searchParams.get('clearCache')
-    if (shouldClearCache === 'true' && !hasClearedCacheRef.current) {
-      console.log('🧹 Clearing cache after login')
-      CacheManager.clearAllCaches()
-      hasClearedCacheRef.current = true
+  // Hook to fetch inventories - now uses selectedPlayer from context
+  const { data, loading, error, refresh, clearCache } = useInventories({
+    autoRefresh: false,
+  })
 
-      // Remove the query parameter from URL without reload
-      const newUrl = window.location.pathname
-      window.history.replaceState({}, '', newUrl)
-    }
-  }, [searchParams])
-
-  // Verify authentication FIRST
+  // Verify authentication
   useEffect(() => {
     const checkUser = async () => {
       try {
@@ -63,14 +54,7 @@ function HomeContent() {
     checkUser()
   }, [router])
 
-  // Hook to fetch user's inventories - ONLY initialize when user is ready
-  const { data, loading, error, refresh, clearCache } = useInventories({
-    autoRefresh: false,
-    userId: user?.id,
-    skip: !user || checkingAuth,
-  })
-
-  // Setup auth state listener - separate from initial check
+  // Setup auth state listener
   useEffect(() => {
     const supabase = createBrowserClient()
     const {
@@ -129,11 +113,10 @@ function HomeContent() {
       {/* Header */}
       <header className="border-b border-gray-200 bg-white shadow-sm">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
+          {/* Top row: Logo and user actions */}
+          <div className="mb-4 flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                Player Inventory
-              </h1>
+              <h1 className="text-2xl font-bold text-gray-900">Habylon</h1>
               <p className="mt-1 text-sm text-gray-600">
                 Welcome back, {user?.email}
               </p>
@@ -141,7 +124,7 @@ function HomeContent() {
             <div className="flex items-center gap-4">
               <button
                 onClick={refresh}
-                disabled={loading}
+                disabled={loading || !selectedPlayer}
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? 'Refreshing...' : 'Refresh'}
@@ -157,18 +140,86 @@ function HomeContent() {
               </button>
             </div>
           </div>
+
+          {/* Bottom row: Selectors */}
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="min-w-[200px] flex-1">
+              <AdventureSelector />
+            </div>
+            <div className="min-w-[200px] flex-1">
+              <PlayerSelector />
+            </div>
+          </div>
+
+          {/* Context display */}
+          {selectedAdventure && selectedPlayer && (
+            <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              <span className="font-medium">Playing as:</span>{' '}
+              {selectedPlayer.role_name || 'Character'} (Level{' '}
+              {selectedPlayer.level || 1}) in {selectedAdventure.name}
+            </div>
+          )}
         </div>
       </header>
 
       {/* Main Content */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <InventoriesList data={data} loading={loading} error={error} />
+        {!selectedAdventure ? (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-8 text-center">
+            <svg
+              className="mx-auto h-12 w-12 text-blue-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
+            </svg>
+            <h3 className="mt-2 text-lg font-medium text-gray-900">
+              Select an Adventure
+            </h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Choose an adventure from the dropdown above to get started
+            </p>
+          </div>
+        ) : !selectedPlayer ? (
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-8 text-center">
+            <svg
+              className="mx-auto h-12 w-12 text-yellow-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              />
+            </svg>
+            <h3 className="mt-2 text-lg font-medium text-gray-900">
+              Select a Character
+            </h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Choose your character from the dropdown above
+            </p>
+            <p className="mt-2 text-xs text-gray-500">
+              Adventure: {selectedAdventure.name}
+            </p>
+          </div>
+        ) : (
+          <InventoriesList data={data} loading={loading} error={error} />
+        )}
       </main>
     </div>
   )
 }
 
-// 🔧 FIX: Wrap in Suspense with fallback
+// Wrap in Suspense for useSearchParams (even though we removed it)
 export default function HomePage() {
   return (
     <Suspense

@@ -1,6 +1,7 @@
 // src/hooks/useInventories.ts
-// FIXED VERSION - Added skip option to prevent premature fetching
+// UPDATED VERSION - Uses player from GameContext
 import { useState, useEffect, useRef } from 'react'
+import { useGame } from '@/contexts/GameContext'
 
 export interface Item {
   item_id: string
@@ -26,13 +27,13 @@ export interface InventoriesData {
   inventories: Inventory[]
   total_items: number
   player_id: string
+  adventure_id: string
+  adventure_name: string
 }
 
 interface UseInventoriesOptions {
   autoRefresh?: boolean
   refreshInterval?: number
-  userId?: string
-  skip?: boolean // 🔧 NEW: Skip fetching until ready
 }
 
 interface UseInventoriesReturn {
@@ -46,10 +47,13 @@ interface UseInventoriesReturn {
 export function useInventories(
   options: UseInventoriesOptions = {},
 ): UseInventoriesReturn {
-  const { autoRefresh = false, refreshInterval = 30000, skip = false } = options
+  const { autoRefresh = false, refreshInterval = 30000 } = options
+
+  // Get selected player from context
+  const { selectedPlayer } = useGame()
 
   const [data, setData] = useState<InventoriesData | null>(null)
-  const [loading, setLoading] = useState(!skip) // 🔧 Don't show loading if skipped
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Use ref to track if we're currently fetching to prevent duplicate requests
@@ -66,7 +70,7 @@ export function useInventories(
     hasData: !!data,
     hasError: !!error,
     refreshTrigger,
-    skip, // 🔧 Log skip state
+    selectedPlayerId: selectedPlayer?.player_id,
   })
 
   // Clear cache function
@@ -83,10 +87,11 @@ export function useInventories(
 
   // Main fetch effect - this is the ONLY place we fetch
   useEffect(() => {
-    // 🔧 FIX: Don't fetch if skip is true
-    if (skip) {
-      console.log('⏭️ Skipping fetch (skip=true)')
+    // Skip if no player selected
+    if (!selectedPlayer) {
+      console.log('⏭️ Skipping fetch (no player selected)')
       setLoading(false)
+      setData(null)
       return
     }
 
@@ -112,22 +117,25 @@ export function useInventories(
         isFetchingRef.current = true
         lastFetchTimeRef.current = now
 
-        console.log('📡 Starting fetch...')
+        console.log('📡 Starting fetch for player:', selectedPlayer.player_id)
 
         setLoading(true)
         setError(null)
 
-        const response = await fetch('/api/player/inventories', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache',
-            Pragma: 'no-cache',
+        const response = await fetch(
+          `/api/player/${selectedPlayer.player_id}/inventories`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+            },
+            credentials: 'include',
+            cache: 'no-store',
+            signal: abortController.signal,
           },
-          credentials: 'include',
-          cache: 'no-store',
-          signal: abortController.signal,
-        })
+        )
 
         console.log('📥 Response received:', {
           status: response.status,
@@ -153,8 +161,6 @@ export function useInventories(
         console.log('💾 Setting data and loading to false')
         setData(result.data)
         setLoading(false)
-
-        // Note: We removed the cachedUserId tracking as it was causing issues
       } catch (err) {
         // Ignore abort errors
         if (err instanceof Error && err.name === 'AbortError') {
@@ -182,11 +188,11 @@ export function useInventories(
       console.log('🛑 Aborting fetch')
       abortController.abort()
     }
-  }, [refreshTrigger, skip]) // 🔧 Added skip to dependencies
+  }, [refreshTrigger, selectedPlayer]) // Re-fetch when player changes
 
   // Auto-refresh setup
   useEffect(() => {
-    if (!autoRefresh || skip) {
+    if (!autoRefresh || !selectedPlayer) {
       console.log('⏰ Auto-refresh disabled')
       return
     }
@@ -201,11 +207,11 @@ export function useInventories(
       console.log('🛑 Clearing auto-refresh interval')
       clearInterval(intervalId)
     }
-  }, [autoRefresh, refreshInterval, skip])
+  }, [autoRefresh, refreshInterval, selectedPlayer])
 
   // Refresh on window focus (user returns to tab)
   useEffect(() => {
-    if (skip) return
+    if (!selectedPlayer) return
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -218,7 +224,7 @@ export function useInventories(
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [skip])
+  }, [selectedPlayer])
 
   console.log('🎣 Returning from hook:', {
     hasData: !!data,
